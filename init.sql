@@ -1,0 +1,8 @@
+IF DB_ID('mini_etl') IS NULL CREATE DATABASE mini_etl;
+GO
+USE mini_etl;
+GO
+IF SCHEMA_ID('staging') IS NULL EXEC('CREATE SCHEMA staging');
+GO
+IF SCHEMA_ID('dw') IS NULL EXEC('CREATE SCHEMA dw');
+GO
