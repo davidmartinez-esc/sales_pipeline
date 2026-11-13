@@ -22,21 +22,6 @@ Proyecto de práctica que implementa un pipeline ETL completo: extrae un archivo
 | Infraestructura | Docker y Docker Compose |
 | Configuración | python-dotenv |
 
-## Arquitectura
-
-```mermaid
-flowchart LR
-    A[generar_csv.py] --> B[(ventas_sucias.csv)]
-    B --> C[transform.py<br/>pandas]
-    C --> D[(ventas_limpias.csv)]
-    B --> E[load.py]
-    D --> E
-    E --> F[staging.ventas_raw]
-    E --> G[dw.dim_cliente]
-    E --> H[dw.dim_producto]
-    E --> I[dw.fact_ventas]
-```
-
 ## Modelo de datos
 
 El esquema `staging` guarda el dato crudo, tal como llegó. El esquema `dw` guarda el dato limpio en un **modelo de estrella**:
@@ -49,10 +34,10 @@ El esquema `staging` guarda el dato crudo, tal como llegó. El esquema `dw` guar
 
 | Tabla | Tipo | Contenido |
 |---|---|---|
-| `staging.ventas_raw` | Staging | Copia fiel del CSV, con duplicados y errores |
-| `dw.dim_cliente` | Dimensión | Un registro por cliente |
-| `dw.dim_producto` | Dimensión | Un registro por producto |
-| `dw.fact_ventas` | Hechos | Una fila por venta, con claves hacia las dimensiones, cantidad, precio y total |
+| `staging.ventas_raw` | Staging | Copia fiel del CSV raw con duplicados y errores |
+| `dw.dim_cliente` | Un registro por cliente |
+| `dw.dim_producto` | Un registro por producto |
+| `dw.fact_ventas` | Una fila por venta, con claves hacia las dimensiones, cantidad, precio y total |
 
 ## Limpieza aplicada (Transform)
 
@@ -61,32 +46,30 @@ El esquema `staging` guarda el dato crudo, tal como llegó. El esquema `dw` guar
 | 10 filas duplicadas | `drop_duplicates` por `id_venta` |
 | Nombres con espacios y mayúsculas inconsistentes | `strip()` y `title()` |
 | Fechas en 3 formatos (`YYYY-MM-DD`, `DD/MM/YYYY`, `DD-MM-YYYY`) | Función que prueba cada formato y devuelve `NaT` si ninguno calza |
-| Precios nulos | Se rellenan con el precio habitual del mismo producto |
+| Precios nulos | Se rellenan con el precio habitual del mismo producto en otras lineas|
 | Falta el total de cada venta | Columna calculada `total = cantidad * precio_unitario` |
-
-Los supuestos de la limpieza (por ejemplo, que `05-08-2026` es día/mes/año) son decisiones que en un caso real se confirman con el dueño de los datos.
 
 ## Estructura del repositorio
 
 ```
 sales_pipeline/
-├── docker-compose.yml     # SQL Server + servicio de inicialización
+├── docker-compose.yml     # SQL Server + inicialización
 ├── init.sql               # Crea la base mini_etl y los esquemas staging y dw
 ├── .env.example           # Plantilla de variables de entorno
-├── requirements.txt       # Dependencias de Python
+├── requirements.txt       # Dependencias de Python utilizadas
 ├── db.py                  # Conexión a SQL Server (lee la contraseña del .env)
 ├── generar_csv.py         # Genera ventas_sucias.csv con errores a propósito
 ├── extract.py             # Perfilamiento de los datos crudos
 ├── transform.py           # Limpieza y generación de ventas_limpias.csv
 ├── load.py                # Carga a staging y al modelo de estrella
-└── test_conexion.py       # Prueba rápida de conexión
+└── test_conexion.py       # Prueba rápida de conexión para probar si tiene instalados los drivers correctos
 ```
 
 ## Requisitos previos
 
 - Docker Desktop (o Docker Engine con Compose)
 - Python 3.10 o superior
-- **ODBC Driver 18 for SQL Server** instalado en tu máquina (es el driver que usa `pyodbc`; el driver antiguo `SQL Server` que trae Windows no sirve)
+- **ODBC Driver 18 for SQL Server** instalado en tu máquina (es el driver que usa `pyodbc`)
 
 ## Cómo ejecutarlo
 
@@ -124,7 +107,7 @@ cp .env.example .env
 MSSQL_SA_PASSWORD=TuContraseñaSegura123
 ```
 
-La contraseña debe tener al menos 8 caracteres y mezclar mayúsculas, minúsculas y números (política de SQL Server). El archivo `.env` está en `.gitignore` y no se sube al repositorio.
+La contraseña debe tener al menos 8 caracteres y mezclar mayúsculas, minúsculas y números (política de SQL Server).
 
 ### 3. Levanta SQL Server
 
@@ -133,7 +116,7 @@ docker compose up -d
 docker compose ps
 ```
 
-Espera a que `sqlserver` aparezca como `healthy`. El servicio `init` crea la base `mini_etl` y los esquemas `staging` y `dw`, y luego termina (`Exited (0)` es lo esperado).
+Espera a que `sqlserver` aparezca como `healthy`. El servicio `init` crea la base `mini_etl` y los esquemas `staging` y `dw`, y luego termina.
 
 ### 4. Verifica la conexión
 
@@ -141,7 +124,7 @@ Espera a que `sqlserver` aparezca como `healthy`. El servicio `init` crea la bas
 python test_conexion.py
 ```
 
-Debe imprimir `[('staging',), ('dw',)]`.
+Imprime `[('staging',), ('dw',)]`.
 
 ### 5. Ejecuta el pipeline
 
@@ -217,9 +200,7 @@ ORDER BY mes;
 - **Staging separado del DW:** el dato crudo se conserva sin tocar, así se puede reprocesar si cambia una regla de limpieza.
 - **Modelo de estrella:** evita repetir texto en cada venta y permite agrupar por cualquier dimensión.
 - **Carga transaccional:** `load.py` usa una transacción, de modo que si algo falla a mitad de camino no queda la base a medias.
-- **Idempotencia:** el script recrea las tablas del DW en cada ejecución, por lo que correrlo varias veces deja el mismo resultado.
-- **Credenciales fuera del código:** la contraseña vive en `.env` y la conexión se arma con `URL.create`, que escapa correctamente caracteres especiales.
-- **Healthcheck en Compose:** el servicio de inicialización solo corre cuando SQL Server ya acepta conexiones.
+- **Contraseñas fuera del código:** la contraseña vive en `.env` y la conexión se arma con `URL.create`, que escapa correctamente caracteres especiales.
 
 ## Solución de problemas
 
@@ -235,16 +216,3 @@ Para borrar todo y empezar de cero (incluye los datos):
 ```bash
 docker compose down -v
 ```
-
-## Próximos pasos
-
-- Reimplementar el mismo flujo con Pentaho Data Integration.
-- Agregar logging y una tabla de control para registrar cada ejecución.
-- Pasar de recarga completa a carga incremental.
-- Añadir pruebas automáticas para las reglas de limpieza.
-- Conectar el modelo a un dashboard en Power BI.
-
-## Autor
-
-**David Martínez Escares**, Ingeniero en Ejecución en Computación e Informática (USACH)
-[linkedin.com/in/david-martinez-esc](https://linkedin.com/in/david-martinez-esc)
